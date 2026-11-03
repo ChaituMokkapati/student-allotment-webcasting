@@ -196,6 +196,19 @@ def api_buildings():
     return jsonify([row_get(r, "building_name") for r in rows])
 
 
+@app.route("/api/roll-available")
+def roll_available():
+    roll_number = request.args.get("roll", "").strip().upper()
+    if not re.fullmatch(r"[A-Za-z0-9]{10}", roll_number):
+        return jsonify({"ok": False, "available": False, "reason": "invalid"})
+    conn = get_db()
+    existing = conn.execute(
+        "SELECT id FROM registrations WHERE roll_number = ?", (roll_number,)
+    ).fetchone()
+    conn.close()
+    return jsonify({"ok": True, "available": existing is None, "roll": roll_number})
+
+
 @app.route("/register", methods=["POST"])
 def register():
     roll_number = request.form.get("roll_number", "").strip().upper()
@@ -234,6 +247,14 @@ def register():
         return redirect(url_for("index"))
 
     conn = get_db()
+    duplicate = conn.execute(
+        "SELECT id FROM registrations WHERE roll_number = ?", (roll_number,)
+    ).fetchone()
+    if duplicate:
+        conn.close()
+        flash("This roll number is already registered. Duplicate roll numbers are not allowed.", "error")
+        return redirect(url_for("index"))
+
     master = conn.execute(
         "SELECT * FROM master_students WHERE name = ?", (student_name,)
     ).fetchone()
@@ -286,7 +307,7 @@ def register():
         conn.commit()
         flash("Registration saved successfully.", "success")
     except integrity_error():
-        flash("This roll number is already registered.", "error")
+        flash("This roll number is already registered. Duplicate roll numbers are not allowed.", "error")
     finally:
         conn.close()
 

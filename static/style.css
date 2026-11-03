@@ -279,6 +279,16 @@ input.edited {
   line-height: 1.25;
 }
 
+.hint.error {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+input.invalid {
+  border-color: #f04438;
+  background: #fff5f5;
+}
+
 .hidden { display: none !important; }
 
 .actions {

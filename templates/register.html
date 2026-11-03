@@ -34,6 +34,7 @@
             autocapitalize="characters"
             spellcheck="false"
           />
+          <small id="rollHint" class="hint hidden" aria-live="polite"></small>
         </label>
 
         <div class="field span-4">
@@ -141,10 +142,15 @@
 
   let originalContact = "";
   const openCombos = new Set();
+  let rollAvailable = true;
+  let rollCheckTimer = null;
+  let rollCheckToken = 0;
+  const rollHint = document.getElementById("rollHint");
 
   function formIsComplete() {
     return (
       /^[A-Za-z0-9]{10}$/.test(rollInput.value.trim()) &&
+      rollAvailable &&
       !!studentHidden.value &&
       !!yearInput.value &&
       /^\d{10}$/.test(contactInput.value.trim()) &&
@@ -155,8 +161,51 @@
     );
   }
 
+  function setRollHint(message, isError) {
+    if (!message) {
+      rollHint.textContent = "";
+      rollHint.classList.add("hidden");
+      rollHint.classList.remove("error");
+      rollInput.classList.remove("invalid");
+      return;
+    }
+    rollHint.textContent = message;
+    rollHint.classList.remove("hidden");
+    rollHint.classList.toggle("error", !!isError);
+    rollInput.classList.toggle("invalid", !!isError);
+  }
+
   function updateSubmitState() {
     submitBtn.disabled = !formIsComplete();
+  }
+
+  function checkRollDuplicate() {
+    const roll = rollInput.value.trim().toUpperCase();
+    if (!/^[A-Za-z0-9]{10}$/.test(roll)) {
+      rollAvailable = true;
+      setRollHint("");
+      updateSubmitState();
+      return;
+    }
+    const token = ++rollCheckToken;
+    fetch(`/api/roll-available?roll=${encodeURIComponent(roll)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (token !== rollCheckToken) return;
+        rollAvailable = !!data.available;
+        if (!rollAvailable) {
+          setRollHint("This roll number is already registered.", true);
+        } else {
+          setRollHint("");
+        }
+        updateSubmitState();
+      })
+      .catch(() => {
+        if (token !== rollCheckToken) return;
+        // Keep submit gated only when we know it is a duplicate.
+        rollAvailable = true;
+        updateSubmitState();
+      });
   }
 
   function unique(arr) {
@@ -490,6 +539,15 @@
         rollInput.setSelectionRange(start, end);
       } catch (_) {}
     }
+    if (!/^[A-Za-z0-9]{10}$/.test(rollInput.value)) {
+      rollAvailable = true;
+      setRollHint("");
+    } else {
+      // Optimistic lock until API confirms availability.
+      rollAvailable = false;
+      clearTimeout(rollCheckTimer);
+      rollCheckTimer = setTimeout(checkRollDuplicate, 250);
+    }
     updateSubmitState();
   }
   ["input", "keyup", "change", "blur", "paste"].forEach((evt) => {
@@ -541,6 +599,9 @@
     gpHidden.value = "";
     psHidden.value = "";
     buildingHidden.value = "";
+    rollAvailable = true;
+    setRollHint("");
+    clearTimeout(rollCheckTimer);
 
     studentCombo.clear();
     mandalCombo.clear();
@@ -561,6 +622,12 @@
   });
 
   document.getElementById("regForm").addEventListener("submit", (e) => {
+    if (!rollAvailable) {
+      e.preventDefault();
+      setRollHint("This roll number is already registered.", true);
+      rollInput.focus();
+      return;
+    }
     if (!formIsComplete()) {
       e.preventDefault();
       alert("Please fill all compulsory fields marked with *");
