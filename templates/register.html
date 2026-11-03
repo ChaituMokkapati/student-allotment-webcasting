@@ -1,0 +1,556 @@
+{% extends "base.html" %}
+{% block title %}Student Registration — Webcasting Allotment{% endblock %}
+
+{% block content %}
+<section class="card">
+  <div class="page-hero">
+    <h1>Student Registration</h1>
+    <p class="eyebrow">DVR &amp; DR HS MIC · Kanchikacherla</p>
+  </div>
+
+  <form method="post" action="{{ url_for('register') }}" id="regForm" class="form-body">
+    <section class="section">
+      <div class="section-head">
+        <div class="step">1</div>
+        <div>
+          <h2>Student details</h2>
+        </div>
+      </div>
+
+      <div class="form-grid">
+        <label class="field span-2">
+          <span>Roll No <i class="req">*</i></span>
+          <input
+            type="text"
+            name="roll_number"
+            id="roll_number"
+            maxlength="10"
+            minlength="10"
+            pattern="[A-Za-z0-9]{10}"
+            placeholder="21AIML0123"
+            required
+            autocomplete="off"
+          />
+        </label>
+
+        <div class="field span-4">
+          <span>Student Name <i class="req">*</i></span>
+          <div class="combo" id="combo-student" data-combo="student"></div>
+          <input type="hidden" name="student_name" id="student_name" />
+        </div>
+
+        <label class="field span-4">
+          <span>College</span>
+          <input type="text" name="college" id="college" value="{{ college }}" readonly class="locked" />
+        </label>
+
+        <label class="field span-2">
+          <span>Branch</span>
+          <input type="text" name="branch" id="branch" value="{{ branch }}" readonly class="locked" />
+        </label>
+
+        <label class="field span-2">
+          <span>Year <i class="req">*</i></span>
+          <input type="text" name="year_of_study" id="year_of_study" value="" placeholder="Auto" readonly class="locked" />
+        </label>
+
+        <label class="field span-4">
+          <span>Contact No <i class="req">*</i></span>
+          <div class="contact-edit">
+            <input
+              type="text"
+              name="contact_no"
+              id="contact_no"
+              maxlength="10"
+              pattern="\d{10}"
+              placeholder="Auto from student"
+              readonly
+              class="locked"
+            />
+            <button type="button" id="editContactBtn" class="btn secondary">Edit</button>
+          </div>
+          <small id="contactHint" class="hint hidden">Edited contact will be yellow in Excel export.</small>
+        </label>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div class="step">2</div>
+        <div>
+          <h2>Polling station</h2>
+          <p>Mandal → GP/Ward → PS No → Building</p>
+        </div>
+      </div>
+
+      <div class="form-grid">
+        <div class="field span-2">
+          <span>Mandal <i class="req">*</i></span>
+          <div class="combo" id="combo-mandal" data-combo="mandal"></div>
+          <input type="hidden" name="mandal" id="mandal" />
+        </div>
+
+        <div class="field span-2">
+          <span>Gram Panchayat / Ward <i class="req">*</i></span>
+          <div class="combo" id="combo-gp" data-combo="gp"></div>
+          <input type="hidden" name="gram_panchayat" id="gram_panchayat" />
+        </div>
+
+        <div class="field span-2">
+          <span>Polling Station No. <i class="req">*</i></span>
+          <div class="combo" id="combo-ps" data-combo="ps"></div>
+          <input type="hidden" name="polling_station_no" id="polling_station_no" />
+        </div>
+
+        <div class="field full">
+          <span>Building / Section / Block <i class="req">*</i></span>
+          <div class="combo" id="combo-building" data-combo="building"></div>
+          <input type="hidden" name="building_name" id="building_name" />
+        </div>
+      </div>
+    </section>
+
+    <div class="actions">
+      <button type="submit" id="submitBtn" class="btn primary" disabled>Submit Registration</button>
+      <button type="button" id="clearBtn" class="btn secondary">Clear</button>
+    </div>
+  </form>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const STUDENTS = {{ students|tojson }};
+  const STATIONS = {{ stations|tojson }};
+
+  const yearInput = document.getElementById("year_of_study");
+  const contactInput = document.getElementById("contact_no");
+  const editContactBtn = document.getElementById("editContactBtn");
+  const contactHint = document.getElementById("contactHint");
+  const rollInput = document.getElementById("roll_number");
+  const studentHidden = document.getElementById("student_name");
+  const mandalHidden = document.getElementById("mandal");
+  const gpHidden = document.getElementById("gram_panchayat");
+  const psHidden = document.getElementById("polling_station_no");
+  const buildingHidden = document.getElementById("building_name");
+  const submitBtn = document.getElementById("submitBtn");
+  const clearBtn = document.getElementById("clearBtn");
+
+  let originalContact = "";
+  const openCombos = new Set();
+
+  function formIsComplete() {
+    return (
+      /^[A-Za-z0-9]{10}$/.test(rollInput.value.trim()) &&
+      !!studentHidden.value &&
+      !!yearInput.value &&
+      /^\d{10}$/.test(contactInput.value.trim()) &&
+      !!mandalHidden.value &&
+      !!gpHidden.value &&
+      !!psHidden.value &&
+      !!buildingHidden.value
+    );
+  }
+
+  function updateSubmitState() {
+    submitBtn.disabled = !formIsComplete();
+  }
+
+  function unique(arr) {
+    return [...new Set(arr)];
+  }
+
+  function createCombo({ root, placeholder, searchPlaceholder, disabled = false, onChange }) {
+    root.innerHTML = "";
+    root.classList.toggle("is-disabled", disabled);
+
+    const trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.className = "combo-trigger";
+    trigger.setAttribute("aria-haspopup", "listbox");
+    trigger.setAttribute("aria-expanded", "false");
+    trigger.disabled = disabled;
+
+    const label = document.createElement("span");
+    label.className = "value placeholder";
+    label.textContent = placeholder;
+
+    const chev = document.createElement("span");
+    chev.className = "chev";
+    chev.textContent = "▼";
+
+    trigger.append(label, chev);
+
+    const panel = document.createElement("div");
+    panel.className = "combo-panel hidden";
+
+    const search = document.createElement("input");
+    search.type = "text";
+    search.className = "combo-search";
+    search.placeholder = searchPlaceholder || "Type to search...";
+    search.autocomplete = "off";
+
+    const list = document.createElement("ul");
+    list.className = "combo-list";
+    list.setAttribute("role", "listbox");
+
+    panel.append(search, list);
+    root.append(trigger, panel);
+
+    let options = [];
+    let value = "";
+
+    function close() {
+      panel.classList.add("hidden");
+      trigger.setAttribute("aria-expanded", "false");
+      search.value = "";
+      openCombos.delete(api);
+    }
+
+    function open() {
+      if (trigger.disabled) return;
+      // close others
+      openCombos.forEach((c) => { if (c !== api) c.close(); });
+      panel.classList.remove("hidden");
+      trigger.setAttribute("aria-expanded", "true");
+      render(search.value);
+      search.focus();
+      openCombos.add(api);
+    }
+
+    function render(filter = "") {
+      const q = filter.trim().toLowerCase();
+      const items = options.filter((o) => {
+        const text = typeof o === "string" ? o : o.label;
+        return text.toLowerCase().includes(q);
+      });
+      list.innerHTML = "";
+      if (!items.length) {
+        list.innerHTML = `<li class="combo-empty">No options found</li>`;
+        return;
+      }
+      items.forEach((o) => {
+        const itemValue = typeof o === "string" ? o : o.value;
+        const itemLabel = typeof o === "string" ? o : o.label;
+        const meta = typeof o === "string" ? "" : (o.meta || "");
+        const li = document.createElement("li");
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.innerHTML = meta
+          ? `${escapeHtml(itemLabel)}<span class="meta">${escapeHtml(meta)}</span>`
+          : escapeHtml(itemLabel);
+        if (itemValue === value) btn.classList.add("active");
+        btn.addEventListener("click", () => {
+          setValue(itemValue, itemLabel, true);
+          close();
+        });
+        li.appendChild(btn);
+        list.appendChild(li);
+      });
+    }
+
+    function setValue(nextValue, nextLabel, fire = false) {
+      value = nextValue || "";
+      if (!value) {
+        label.textContent = placeholder;
+        label.classList.add("placeholder");
+      } else {
+        label.textContent = nextLabel || nextValue;
+        label.classList.remove("placeholder");
+      }
+      if (fire && onChange) onChange(value);
+    }
+
+    function setOptions(nextOptions, { keepValue = false } = {}) {
+      options = nextOptions || [];
+      if (!keepValue || !options.some((o) => (typeof o === "string" ? o : o.value) === value)) {
+        setValue("", "", false);
+      }
+      if (!panel.classList.contains("hidden")) render(search.value);
+    }
+
+    function setDisabled(next) {
+      trigger.disabled = !!next;
+      root.classList.toggle("is-disabled", !!next);
+      if (next) close();
+    }
+
+    trigger.addEventListener("click", () => {
+      if (panel.classList.contains("hidden")) open();
+      else close();
+    });
+    search.addEventListener("input", () => render(search.value));
+
+    const api = {
+      setOptions,
+      setValue: (v, l) => setValue(v, l, false),
+      clear: () => setValue("", "", false),
+      setDisabled,
+      close,
+      get value() { return value; },
+    };
+    return api;
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;");
+  }
+
+  function lockContact() {
+    contactInput.readOnly = true;
+    contactInput.classList.add("locked");
+    contactInput.classList.remove("edited");
+    contactHint.classList.add("hidden");
+    editContactBtn.textContent = "Edit";
+  }
+
+  const studentCombo = createCombo({
+    root: document.getElementById("combo-student"),
+    placeholder: "Search / select student",
+    searchPlaceholder: "Type student name...",
+    onChange: (name) => {
+      studentHidden.value = name;
+      const s = STUDENTS.find((x) => x.name === name);
+      if (!s) {
+        yearInput.value = "";
+        contactInput.value = "";
+        originalContact = "";
+        lockContact();
+        updateSubmitState();
+        return;
+      }
+      yearInput.value = s.year_of_study;
+      originalContact = s.contact_no;
+      contactInput.value = originalContact;
+      lockContact();
+      updateSubmitState();
+    },
+  });
+
+  studentCombo.setOptions(
+    STUDENTS.map((s) => ({
+      value: s.name,
+      label: s.name,
+      meta: `${s.year_of_study} · ${s.contact_no}`,
+    }))
+  );
+
+  const mandalCombo = createCombo({
+    root: document.getElementById("combo-mandal"),
+    placeholder: "-- Select Mandal --",
+    searchPlaceholder: "Search mandal...",
+    onChange: (mandal) => {
+      mandalHidden.value = mandal;
+      gpHidden.value = "";
+      psHidden.value = "";
+      buildingHidden.value = "";
+      gpCombo.clear();
+      psCombo.clear();
+      buildingCombo.clear();
+      psCombo.setDisabled(true);
+      buildingCombo.setDisabled(true);
+
+      if (!mandal) {
+        gpCombo.setOptions([]);
+        gpCombo.setDisabled(true);
+        updateSubmitState();
+        return;
+      }
+
+      const gps = unique(
+        STATIONS.filter((s) => s.mandal === mandal).map((s) => s.gram_panchayat)
+      ).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+      gpCombo.setOptions(gps);
+      gpCombo.setDisabled(false);
+      updateSubmitState();
+    },
+  });
+
+  const gpCombo = createCombo({
+    root: document.getElementById("combo-gp"),
+    placeholder: "-- Select after Mandal --",
+    searchPlaceholder: "Search gram panchayat / ward...",
+    disabled: true,
+    onChange: (gp) => {
+      gpHidden.value = gp;
+      psHidden.value = "";
+      buildingHidden.value = "";
+      psCombo.clear();
+      buildingCombo.clear();
+      buildingCombo.setDisabled(true);
+
+      const mandal = mandalHidden.value;
+      if (!mandal || !gp) {
+        psCombo.setOptions([]);
+        psCombo.setDisabled(true);
+        updateSubmitState();
+        return;
+      }
+
+      const stations = unique(
+        STATIONS.filter((s) => s.mandal === mandal && s.gram_panchayat === gp)
+          .map((s) => String(s.polling_station_no))
+      ).sort((a, b) => Number(a) - Number(b) || a.localeCompare(b));
+
+      psCombo.setOptions(stations.map((n) => ({ value: n, label: `Station ${n}` })));
+      psCombo.setDisabled(false);
+      updateSubmitState();
+    },
+  });
+
+  const psCombo = createCombo({
+    root: document.getElementById("combo-ps"),
+    placeholder: "-- Select after Gram Panchayat --",
+    searchPlaceholder: "Search polling station no...",
+    disabled: true,
+    onChange: (ps) => {
+      psHidden.value = ps;
+      buildingHidden.value = "";
+      buildingCombo.clear();
+
+      const mandal = mandalHidden.value;
+      const gp = gpHidden.value;
+      if (!mandal || !gp || !ps) {
+        buildingCombo.setOptions([]);
+        buildingCombo.setDisabled(true);
+        updateSubmitState();
+        return;
+      }
+
+      const buildings = unique(
+        STATIONS.filter(
+          (s) =>
+            s.mandal === mandal &&
+            s.gram_panchayat === gp &&
+            String(s.polling_station_no) === String(ps)
+        ).map((s) => s.building_name)
+      );
+
+      buildingCombo.setOptions(buildings);
+      buildingCombo.setDisabled(false);
+      if (buildings.length === 1) {
+        buildingCombo.setValue(buildings[0], buildings[0]);
+        buildingHidden.value = buildings[0];
+      }
+      updateSubmitState();
+    },
+  });
+
+  const buildingCombo = createCombo({
+    root: document.getElementById("combo-building"),
+    placeholder: "-- Select after Polling Station --",
+    searchPlaceholder: "Search building / section...",
+    disabled: true,
+    onChange: (building) => {
+      buildingHidden.value = building;
+      updateSubmitState();
+    },
+  });
+
+  mandalCombo.setOptions(
+    unique(STATIONS.map((s) => s.mandal)).sort((a, b) => a.localeCompare(b))
+  );
+
+  document.addEventListener("click", (e) => {
+    openCombos.forEach((combo) => {
+      // close if click outside any open combo root
+    });
+    document.querySelectorAll(".combo").forEach((root) => {
+      if (!root.contains(e.target)) {
+        const panel = root.querySelector(".combo-panel");
+        const trigger = root.querySelector(".combo-trigger");
+        if (panel && !panel.classList.contains("hidden")) {
+          panel.classList.add("hidden");
+          if (trigger) trigger.setAttribute("aria-expanded", "false");
+        }
+      }
+    });
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      document.querySelectorAll(".combo-panel").forEach((p) => p.classList.add("hidden"));
+    }
+  });
+
+  rollInput.addEventListener("input", () => {
+    rollInput.value = rollInput.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 10);
+    updateSubmitState();
+  });
+
+  editContactBtn.addEventListener("click", () => {
+    if (!contactInput.value && !originalContact) return;
+    if (contactInput.readOnly) {
+      contactInput.readOnly = false;
+      contactInput.classList.remove("locked");
+      contactHint.classList.remove("hidden");
+      contactInput.focus();
+      editContactBtn.textContent = "Lock";
+    } else {
+      contactInput.readOnly = true;
+      contactInput.classList.add("locked");
+      editContactBtn.textContent = "Edit";
+      if (contactInput.value !== originalContact) {
+        contactInput.classList.add("edited");
+        contactHint.classList.remove("hidden");
+      } else {
+        contactInput.classList.remove("edited");
+        contactHint.classList.add("hidden");
+      }
+    }
+  });
+
+  contactInput.addEventListener("input", () => {
+    contactInput.value = contactInput.value.replace(/\D/g, "").slice(0, 10);
+    if (originalContact && contactInput.value !== originalContact) {
+      contactInput.classList.add("edited");
+    } else {
+      contactInput.classList.remove("edited");
+    }
+    updateSubmitState();
+  });
+
+  clearBtn.addEventListener("click", () => {
+    rollInput.value = "";
+    studentHidden.value = "";
+    yearInput.value = "";
+    contactInput.value = "";
+    originalContact = "";
+    mandalHidden.value = "";
+    gpHidden.value = "";
+    psHidden.value = "";
+    buildingHidden.value = "";
+
+    studentCombo.clear();
+    mandalCombo.clear();
+    gpCombo.clear();
+    psCombo.clear();
+    buildingCombo.clear();
+
+    gpCombo.setOptions([]);
+    psCombo.setOptions([]);
+    buildingCombo.setOptions([]);
+    gpCombo.setDisabled(true);
+    psCombo.setDisabled(true);
+    buildingCombo.setDisabled(true);
+
+    lockContact();
+    updateSubmitState();
+    rollInput.focus();
+  });
+
+  document.getElementById("regForm").addEventListener("submit", (e) => {
+    if (!formIsComplete()) {
+      e.preventDefault();
+      alert("Please fill all compulsory fields marked with *");
+      return;
+    }
+  });
+
+  updateSubmitState();
+</script>
+{% endblock %}

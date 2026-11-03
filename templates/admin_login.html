@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Admin Login — Webcasting Allotment{% endblock %}
+
+{% block content %}
+<section class="card narrow">
+  <p class="eyebrow" style="margin:0 0 8px;color:var(--accent);font-size:0.78rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">Admin access</p>
+  <h1 style="margin:0 0 6px;font-family:var(--display);">Admin Login</h1>
+  <p class="sub" style="margin:0 0 20px;color:var(--muted);">Sign in to view registrations and export Excel.</p>
+  <form method="post" class="form-grid" style="grid-template-columns:1fr;">
+    <label class="field">
+      <span>Username</span>
+      <input type="text" name="username" required autocomplete="username" />
+    </label>
+    <label class="field">
+      <span>Password</span>
+      <input type="password" name="password" required autocomplete="current-password" />
+    </label>
+    <div class="actions full">
+      <button type="submit" class="btn primary">Login</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

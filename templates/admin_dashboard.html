@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Admin Dashboard — Webcasting Allotment{% endblock %}
+
+{% block content %}
+<section class="card wide">
+  <div class="admin-head">
+    <div>
+      <p class="eyebrow" style="margin:0 0 8px;color:var(--accent);font-size:0.78rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">Admin</p>
+      <h1 style="margin:0 0 6px;font-family:var(--display);">Registrations</h1>
+      <p class="sub" style="margin:0;color:var(--muted);">Total: {{ rows|length }} · Yellow contact = edited by student</p>
+    </div>
+    <div class="admin-actions">
+      <a class="btn primary" href="{{ url_for('admin_export') }}">Export to Excel</a>
+      <a class="btn secondary" href="{{ url_for('admin_logout') }}">Logout</a>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Roll No</th>
+          <th>Student</th>
+          <th>Year</th>
+          <th>Branch</th>
+          <th>Contact</th>
+          <th>Mandal</th>
+          <th>Gram Panchayat / Ward</th>
+          <th>PS No.</th>
+          <th>Building</th>
+          <th>Submitted</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if rows %}
+          {% for r in rows %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td>{{ r.roll_number }}</td>
+              <td>{{ r.student_name }}</td>
+              <td>{{ r.year_of_study }}</td>
+              <td>{{ r.branch }}</td>
+              <td class="{% if r.contact_changed %}changed{% endif %}">
+                {{ r.contact_no }}
+                {% if r.contact_changed %}
+                  <div class="tiny">was {{ r.original_contact_no }}</div>
+                {% endif %}
+              </td>
+              <td>{{ r.mandal }}</td>
+              <td>{{ r.gram_panchayat }}</td>
+              <td>{{ r.polling_station_no }}</td>
+              <td>{{ r.building_name }}</td>
+              <td>{{ r.created_at }}</td>
+              <td>
+                <form method="post" action="{{ url_for('admin_remove', reg_id=r.id) }}" onsubmit="return confirm('Remove this registration?');">
+                  <button type="submit" class="btn danger-btn">Remove</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="12" class="empty">No registrations yet.</td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

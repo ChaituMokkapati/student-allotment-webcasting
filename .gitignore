@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.db
+.env
+.venv/
+venv/
+~$*
+*.xlsx.bak
+.DS_Store
+Thumbs.db
+_test_export.xlsx
+_check_pw.py
