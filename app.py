@@ -203,7 +203,7 @@ def roll_available():
         return jsonify({"ok": False, "available": False, "reason": "invalid"})
     conn = get_db()
     existing = conn.execute(
-        "SELECT id FROM registrations WHERE roll_number = ?", (roll_number,)
+        "SELECT id FROM registrations WHERE UPPER(roll_number) = ?", (roll_number,)
     ).fetchone()
     conn.close()
     return jsonify({"ok": True, "available": existing is None, "roll": roll_number})
@@ -248,7 +248,7 @@ def register():
 
     conn = get_db()
     duplicate = conn.execute(
-        "SELECT id FROM registrations WHERE roll_number = ?", (roll_number,)
+        "SELECT id FROM registrations WHERE UPPER(roll_number) = ?", (roll_number,)
     ).fetchone()
     if duplicate:
         conn.close()
@@ -342,12 +342,15 @@ def admin_logout():
 @admin_required
 def admin_dashboard():
     conn = get_db()
-    rows = conn.execute(
-        """
-        SELECT * FROM registrations
-        ORDER BY created_at DESC
-        """
-    ).fetchall()
+    rows = [
+        dict(r) if not isinstance(r, dict) else r
+        for r in conn.execute(
+            """
+            SELECT * FROM registrations
+            ORDER BY created_at DESC
+            """
+        ).fetchall()
+    ]
     conn.close()
     return render_template("admin_dashboard.html", rows=rows)
 
@@ -356,14 +359,35 @@ def admin_dashboard():
 @admin_required
 def admin_remove(reg_id):
     conn = get_db()
-    cur = conn.execute("DELETE FROM registrations WHERE id = ?", (reg_id,))
-    conn.commit()
-    deleted = cur.rowcount
-    conn.close()
-    if deleted:
-        flash("Registration removed.", "success")
-    else:
+    existing = conn.execute(
+        "SELECT id, roll_number, student_name FROM registrations WHERE id = ?",
+        (reg_id,),
+    ).fetchone()
+    if not existing:
+        conn.close()
         flash("Registration not found.", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    roll_number = str(row_get(existing, "roll_number") or "").strip().upper()
+    student_name = row_get(existing, "student_name") or "Student"
+
+    conn.execute("DELETE FROM registrations WHERE id = ?", (reg_id,))
+    conn.commit()
+
+    # Confirm row is gone so the same roll can be registered again.
+    still_there = conn.execute(
+        "SELECT id FROM registrations WHERE id = ? OR UPPER(roll_number) = ?",
+        (reg_id, roll_number),
+    ).fetchone()
+    conn.close()
+
+    if still_there:
+        flash("Could not remove registration. Please try again.", "error")
+    else:
+        flash(
+            f"Removed {student_name} ({roll_number}). This roll number can be registered again.",
+            "success",
+        )
     return redirect(url_for("admin_dashboard"))
 
 

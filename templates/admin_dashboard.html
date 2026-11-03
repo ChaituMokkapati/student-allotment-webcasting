@@ -54,7 +54,7 @@
               <td>{{ r.building_name }}</td>
               <td>{{ r.created_at }}</td>
               <td>
-                <form method="post" action="{{ url_for('admin_remove', reg_id=r.id) }}" onsubmit="return confirm('Remove this registration?');">
+                <form method="post" action="{{ url_for('admin_remove', reg_id=r.id) }}" onsubmit="return confirm('Remove this registration? The student can register again with the same roll number.');">
                   <button type="submit" class="btn danger-btn">Remove</button>
                 </form>
               </td>
