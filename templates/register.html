@@ -24,12 +24,15 @@
             type="text"
             name="roll_number"
             id="roll_number"
+            class="roll-upper"
             maxlength="10"
             minlength="10"
             pattern="[A-Za-z0-9]{10}"
             placeholder="21AIML0123"
             required
             autocomplete="off"
+            autocapitalize="characters"
+            spellcheck="false"
           />
         </label>
 
@@ -477,9 +480,23 @@
     }
   });
 
-  rollInput.addEventListener("input", () => {
-    rollInput.value = rollInput.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 10);
+  function normalizeRoll() {
+    const start = rollInput.selectionStart;
+    const end = rollInput.selectionEnd;
+    const next = rollInput.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 10);
+    if (rollInput.value !== next) {
+      rollInput.value = next;
+      try {
+        rollInput.setSelectionRange(start, end);
+      } catch (_) {}
+    }
     updateSubmitState();
+  }
+  ["input", "keyup", "change", "blur", "paste"].forEach((evt) => {
+    rollInput.addEventListener(evt, () => {
+      if (evt === "paste") setTimeout(normalizeRoll, 0);
+      else normalizeRoll();
+    });
   });
 
   editContactBtn.addEventListener("click", () => {
