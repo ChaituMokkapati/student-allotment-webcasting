@@ -1,6 +1,5 @@
 import os
 import re
-import sqlite3
 from datetime import datetime
 from functools import wraps
 from io import BytesIO
@@ -18,95 +17,56 @@ from flask import (
 )
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from db import cast_int_expr, create_schema_sql, get_db, integrity_error
 from students_data import BRANCH, COLLEGE_NAME, STUDENTS, YEARS
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 EXCEL_PATH = os.path.join(BASE_DIR, "Student Allotment for Webcasting.xlsx")
-DB_PATH = os.path.join(BASE_DIR, "allotment.db")
 
-ADMIN_USER = "admin"
-ADMIN_PASS = "admin@chai$$1"
+ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
+ADMIN_PASS = os.environ.get("ADMIN_PASS", "admin@chai$$1")
 
 app = Flask(__name__)
-app.secret_key = "webcasting-allotment-secret-key-change-me"
+app.secret_key = os.environ.get("SECRET_KEY", "webcasting-allotment-secret-key-change-me")
 
 
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+def row_get(row, key):
+    if row is None:
+        return None
+    if isinstance(row, dict):
+        return row.get(key)
+    return row[key]
 
 
 def init_db():
     conn = get_db()
-    cur = conn.cursor()
-    cur.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS stations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            mandal TEXT NOT NULL,
-            gram_panchayat TEXT NOT NULL,
-            polling_station_no TEXT NOT NULL,
-            building_name TEXT NOT NULL
-        );
+    cur = None
+    for stmt in create_schema_sql():
+        cur = conn.execute(stmt)
 
-        CREATE TABLE IF NOT EXISTS master_students (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            year_of_study TEXT NOT NULL,
-            branch TEXT NOT NULL,
-            contact_no TEXT NOT NULL,
-            college TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS registrations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            roll_number TEXT NOT NULL UNIQUE,
-            student_name TEXT NOT NULL,
-            college TEXT NOT NULL,
-            year_of_study TEXT NOT NULL,
-            branch TEXT NOT NULL,
-            contact_no TEXT NOT NULL,
-            original_contact_no TEXT NOT NULL,
-            contact_changed INTEGER NOT NULL DEFAULT 0,
-            mandal TEXT NOT NULL,
-            gram_panchayat TEXT NOT NULL,
-            polling_station_no TEXT NOT NULL,
-            building_name TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS admins (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL
-        );
-        """
-    )
-
-    # Admin account (keep password in sync with ADMIN_PASS)
     password_hash = generate_password_hash(ADMIN_PASS)
-    existing = cur.execute(
+    existing = conn.execute(
         "SELECT id FROM admins WHERE username = ?", (ADMIN_USER,)
     ).fetchone()
     if not existing:
-        cur.execute(
+        conn.execute(
             "INSERT INTO admins (username, password_hash) VALUES (?, ?)",
             (ADMIN_USER, password_hash),
         )
     else:
-        cur.execute(
+        conn.execute(
             "UPDATE admins SET password_hash = ? WHERE username = ?",
             (password_hash, ADMIN_USER),
         )
 
-    # Seed master students
-    count = cur.execute("SELECT COUNT(*) AS c FROM master_students").fetchone()["c"]
+    count_row = conn.execute("SELECT COUNT(*) AS c FROM master_students").fetchone()
+    count = row_get(count_row, "c")
     if count == 0:
         for s in STUDENTS:
-            cur.execute(
+            conn.execute(
                 """
                 INSERT INTO master_students (name, year_of_study, branch, contact_no, college)
                 VALUES (?, ?, ?, ?, ?)
@@ -114,8 +74,8 @@ def init_db():
                 (s["name"], s["year"], BRANCH, s["contact"], COLLEGE_NAME),
             )
 
-    # Seed polling stations from Excel
-    station_count = cur.execute("SELECT COUNT(*) AS c FROM stations").fetchone()["c"]
+    station_row = conn.execute("SELECT COUNT(*) AS c FROM stations").fetchone()
+    station_count = row_get(station_row, "c")
     if station_count == 0 and os.path.exists(EXCEL_PATH):
         wb = load_workbook(EXCEL_PATH, data_only=True)
         ws = wb.active
@@ -125,12 +85,17 @@ def init_db():
             ps = row[10]
             building = row[11]
             if mandal and gp and ps is not None and building:
-                cur.execute(
+                conn.execute(
                     """
                     INSERT INTO stations (mandal, gram_panchayat, polling_station_no, building_name)
                     VALUES (?, ?, ?, ?)
                     """,
-                    (str(mandal).strip(), str(gp).strip(), str(ps).strip(), str(building).strip()),
+                    (
+                        str(mandal).strip(),
+                        str(gp).strip(),
+                        str(ps).strip(),
+                        str(building).strip(),
+                    ),
                 )
 
     conn.commit()
@@ -151,19 +116,19 @@ def admin_required(view):
 def index():
     conn = get_db()
     students = [
-        dict(r)
+        dict(r) if not isinstance(r, dict) else r
         for r in conn.execute(
             "SELECT name, year_of_study, contact_no FROM master_students ORDER BY name"
         ).fetchall()
     ]
+    cast_ps = cast_int_expr("polling_station_no")
     stations = [
-        dict(r)
+        dict(r) if not isinstance(r, dict) else r
         for r in conn.execute(
-            """
+            f"""
             SELECT mandal, gram_panchayat, polling_station_no, building_name
             FROM stations
-            ORDER BY mandal, gram_panchayat,
-                     CAST(polling_station_no AS INTEGER), polling_station_no
+            ORDER BY mandal, gram_panchayat, {cast_ps}, polling_station_no
             """
         ).fetchall()
     ]
@@ -192,24 +157,25 @@ def api_gram_panchayats():
         (mandal,),
     ).fetchall()
     conn.close()
-    return jsonify([r["gram_panchayat"] for r in rows])
+    return jsonify([row_get(r, "gram_panchayat") for r in rows])
 
 
 @app.route("/api/polling-stations")
 def api_polling_stations():
     mandal = request.args.get("mandal", "").strip()
     gp = request.args.get("gram_panchayat", "").strip()
+    cast_ps = cast_int_expr("polling_station_no")
     conn = get_db()
     rows = conn.execute(
-        """
+        f"""
         SELECT DISTINCT polling_station_no FROM stations
         WHERE mandal = ? AND gram_panchayat = ?
-        ORDER BY CAST(polling_station_no AS INTEGER), polling_station_no
+        ORDER BY {cast_ps}, polling_station_no
         """,
         (mandal, gp),
     ).fetchall()
     conn.close()
-    return jsonify([r["polling_station_no"] for r in rows])
+    return jsonify([row_get(r, "polling_station_no") for r in rows])
 
 
 @app.route("/api/buildings")
@@ -227,7 +193,7 @@ def api_buildings():
         (mandal, gp, ps),
     ).fetchall()
     conn.close()
-    return jsonify([r["building_name"] for r in rows])
+    return jsonify([row_get(r, "building_name") for r in rows])
 
 
 @app.route("/register", methods=["POST"])
@@ -276,7 +242,6 @@ def register():
         flash("Selected student is not in the master list.", "error")
         return redirect(url_for("index"))
 
-    # Validate cascading location belongs together
     station = conn.execute(
         """
         SELECT id FROM stations
@@ -290,7 +255,7 @@ def register():
         flash("Invalid polling station selection.", "error")
         return redirect(url_for("index"))
 
-    original_contact = master["contact_no"]
+    original_contact = row_get(master, "contact_no")
     contact_changed = 1 if contact_no != original_contact else 0
 
     try:
@@ -320,7 +285,7 @@ def register():
         )
         conn.commit()
         flash("Registration saved successfully.", "success")
-    except sqlite3.IntegrityError:
+    except integrity_error():
         flash("This roll number is already registered.", "error")
     finally:
         conn.close()
@@ -338,7 +303,7 @@ def admin_login():
             "SELECT * FROM admins WHERE username = ?", (username,)
         ).fetchone()
         conn.close()
-        if admin and check_password_hash(admin["password_hash"], password):
+        if admin and check_password_hash(row_get(admin, "password_hash"), password):
             session["admin_logged_in"] = True
             session["admin_user"] = username
             return redirect(url_for("admin_dashboard"))
@@ -372,8 +337,9 @@ def admin_remove(reg_id):
     conn = get_db()
     cur = conn.execute("DELETE FROM registrations WHERE id = ?", (reg_id,))
     conn.commit()
+    deleted = cur.rowcount
     conn.close()
-    if cur.rowcount:
+    if deleted:
         flash("Registration removed.", "success")
     else:
         flash("Registration not found.", "error")
@@ -416,7 +382,7 @@ def admin_export():
 
     header_fill = PatternFill("solid", fgColor="1F4E79")
     header_font = Font(color="FFFFFF", bold=True)
-    changed_fill = PatternFill("solid", fgColor="FFF2CC")  # yellow highlight
+    changed_fill = PatternFill("solid", fgColor="FFF2CC")
     thin = Border(
         left=Side(style="thin", color="CCCCCC"),
         right=Side(style="thin", color="CCCCCC"),
@@ -432,21 +398,22 @@ def admin_export():
         cell.border = thin
 
     for idx, row in enumerate(rows, start=1):
+        changed = row_get(row, "contact_changed")
         values = [
             idx,
-            row["roll_number"],
-            row["college"],
-            row["student_name"],
-            row["year_of_study"],
-            row["branch"],
-            row["contact_no"],
-            row["original_contact_no"],
-            "Yes" if row["contact_changed"] else "No",
-            row["mandal"],
-            row["gram_panchayat"],
-            row["polling_station_no"],
-            row["building_name"],
-            row["created_at"],
+            row_get(row, "roll_number"),
+            row_get(row, "college"),
+            row_get(row, "student_name"),
+            row_get(row, "year_of_study"),
+            row_get(row, "branch"),
+            row_get(row, "contact_no"),
+            row_get(row, "original_contact_no"),
+            "Yes" if changed else "No",
+            row_get(row, "mandal"),
+            row_get(row, "gram_panchayat"),
+            row_get(row, "polling_station_no"),
+            row_get(row, "building_name"),
+            row_get(row, "created_at"),
         ]
         ws.append(values)
         excel_row = idx + 1
@@ -454,10 +421,8 @@ def admin_export():
             cell = ws.cell(excel_row, col)
             cell.border = thin
             cell.alignment = Alignment(vertical="center", wrap_text=True)
-            if row["contact_changed"] and col in (7, 8, 9):
+            if changed and col in (7, 8, 9):
                 cell.fill = changed_fill
-
-    from openpyxl.utils import get_column_letter
 
     widths = [6, 14, 40, 32, 12, 10, 14, 16, 14, 16, 28, 12, 55, 20]
     for i, w in enumerate(widths, start=1):
@@ -477,6 +442,18 @@ def admin_export():
     )
 
 
-if __name__ == "__main__":
+@app.route("/health")
+def health():
+    return {"ok": True}
+
+
+# Initialize schema/seed on startup (gunicorn + local)
+try:
     init_db()
-    app.run(debug=True, host="0.0.0.0", port=5000)
+except Exception as exc:  # noqa: BLE001
+    print(f"DB init warning: {exc}")
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", "5000"))
+    app.run(debug=os.environ.get("FLASK_DEBUG", "0") == "1", host="0.0.0.0", port=port)

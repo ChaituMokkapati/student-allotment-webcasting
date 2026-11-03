@@ -1,0 +1,9 @@
+.git
+__pycache__
+*.pyc
+*.db
+.venv
+venv
+~$*
+_test_export.xlsx
+_check_pw.py
